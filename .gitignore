@@ -1,0 +1,7 @@
+/Dependencies/
+/Release/
+/.qa/
+.vs/
+__pycache__/
+*.user
+*.log
