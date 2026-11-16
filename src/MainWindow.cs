@@ -26,6 +26,7 @@ namespace FarmHoras
         private readonly Dictionary<uint, IdleSession> sessions = new Dictionary<uint, IdleSession>();
         private readonly HashSet<uint> pendingGoalRemovals = new HashSet<uint>();
         private readonly SteamPlaytime steamPlaytime = new SteamPlaytime();
+        private readonly SteamConfigWatcher steamConfigWatcher = new SteamConfigWatcher();
         private readonly Timer refresh = new Timer { Interval = 250 };
         private readonly TextBox appIds = new TextBox();
         private readonly DataGridView grid = new DataGridView();
@@ -35,6 +36,7 @@ namespace FarmHoras
         private readonly Button addGames = new Button();
         private readonly Button startSelected = new Button();
         private readonly Button startAll = new Button();
+        private readonly Button refreshSteam = new Button();
         private readonly Button removeSelected = new Button();
         private readonly Button stopAll = new Button();
         private readonly string dataDirectory;
@@ -45,6 +47,7 @@ namespace FarmHoras
         private bool steamRunning;
         private DateTime nextSteamCheck;
         private DateTime nextTotalCheck;
+        private DateTime nextConfigRetry;
         private DateTime nextGoalSave;
         private Dictionary<uint, int> steamTotals;
         private uint steamAccount;
@@ -140,13 +143,17 @@ namespace FarmHoras
             ShowFeedback("Cole vários AppIDs, separados por vírgulas, espaços ou linhas.", false);
             layout.Controls.Add(feedback, 0, 4);
 
-            var sessionsHeader = ActionColumns(300);
+            var sessionsHeader = ActionColumns(157, 267);
             sessionsHeader.Controls.Add(MakeLabel("Jogos salvos", 15, FontStyle.Bold, TextColor), 0, 0);
+            StyleButton(refreshSteam, "At&ualizar horas", false);
+            refreshSteam.Margin = new Padding(0, 3, 10, 6);
+            refreshSteam.Click += delegate { RefreshSteamFromButton(); };
+            sessionsHeader.Controls.Add(refreshSteam, 1, 0);
             sessionCount.Dock = DockStyle.Fill;
             sessionCount.ForeColor = Muted;
             sessionCount.TextAlign = ContentAlignment.MiddleRight;
             sessionCount.Margin = Padding.Empty;
-            sessionsHeader.Controls.Add(sessionCount, 1, 0);
+            sessionsHeader.Controls.Add(sessionCount, 2, 0);
             layout.Controls.Add(sessionsHeader, 0, 5);
 
             ConfigureGrid();
@@ -661,10 +668,76 @@ namespace FarmHoras
             steamStatus.ForeColor = steamRunning ? Accent : Muted;
         }
 
-        private void RefreshSteamTotals()
+        private void RefreshSteamFromButton()
         {
+            var previousTotals = steamTotals;
+            uint previousAccount = steamAccount;
+            UpdateSteamStatus();
+            if (!steamRunning)
+            {
+                RequestStopAll(true);
+                RefreshSteamTotals();
+                ShowFeedback("Abra a Steam para atualizar as horas.", true);
+                return;
+            }
+
+            if (!RefreshSteamTotals(forceRead: true, preserveLastReading: true))
+            {
+                ShowFeedback("A leitura da Steam está indisponível agora. Tente novamente.", true);
+                return;
+            }
+
+            int reported = 0;
+            int changed = 0;
+            foreach (uint id in rows.Keys)
+            {
+                int minutes;
+                if (steamTotals.TryGetValue(id, out minutes))
+                {
+                    reported++;
+                    int previous;
+                    if (previousAccount != steamAccount || previousTotals == null ||
+                        !previousTotals.TryGetValue(id, out previous) || previous != minutes)
+                    {
+                        changed++;
+                    }
+                }
+            }
+
+            if (reported == 0)
+            {
+                ShowFeedback("A Steam ainda não tem um total disponível para os jogos da lista.", true);
+            }
+            else if (changed == 0)
+            {
+                ShowFeedback("O total da Steam continua igual. O tempo restante foi recalculado.", false);
+            }
+            else
+            {
+                string count = changed == 1 ? "1 jogo com novo total" : changed + " jogos com novo total";
+                ShowFeedback(count + ". O tempo restante foi recalculado.", false);
+            }
+
+            RefreshSessions();
+        }
+
+        private bool RefreshSteamTotals(bool forceRead = false, bool preserveLastReading = false)
+        {
+            var totals = steamRunning ? steamPlaytime.Read(forceRead) : null;
+            string path = steamRunning ? steamPlaytime.ConfigPath : null;
+            if (path != null || !steamRunning)
+            {
+                steamConfigWatcher.Follow(path);
+            }
+
+            if (preserveLastReading && totals == null)
+            {
+                // Let the scheduled check handle unavailable data for running sessions.
+                return false;
+            }
+
             nextTotalCheck = DateTime.UtcNow.AddSeconds(15);
-            steamTotals = steamRunning ? steamPlaytime.Read() : null;
+            steamTotals = totals;
             steamAccount = steamTotals == null ? 0 : steamPlaytime.AccountId;
             foreach (var pair in rows)
             {
@@ -674,6 +747,7 @@ namespace FarmHoras
                 UpdateGuardCells(pair.Key, pair.Value, session);
                 QueueGoalRemovalIfReached(pair.Key);
             }
+            return totals != null;
         }
 
         private bool QueueGoalRemovalIfReached(uint id)
@@ -802,9 +876,21 @@ namespace FarmHoras
                 }
             }
 
-            if (rows.Count > 0 && DateTime.UtcNow >= nextTotalCheck)
+            if (rows.Count > 0)
             {
-                RefreshSteamTotals();
+                var now = DateTime.UtcNow;
+                bool periodicDue = now >= nextTotalCheck;
+                bool configChanged = steamConfigWatcher.TakeChange();
+                bool retryDue = nextConfigRetry != DateTime.MinValue && now >= nextConfigRetry;
+                if (periodicDue || configChanged || retryDue)
+                {
+                    nextConfigRetry = DateTime.MinValue;
+                    if (!RefreshSteamTotals(forceRead: configChanged || retryDue, preserveLastReading: !periodicDue) &&
+                        configChanged && !periodicDue)
+                    {
+                        nextConfigRetry = DateTime.UtcNow.AddMilliseconds(250);
+                    }
+                }
             }
 
             var finished = new List<uint>();
@@ -1071,6 +1157,7 @@ namespace FarmHoras
             string savedCount = rows.Count == 1 ? "1 jogo adicionado" : rows.Count + " jogos adicionados";
             string runningCount = active == 1 ? "1 ativa" : active + " ativas";
             sessionCount.Text = savedCount + "  ·  " + runningCount;
+            refreshSteam.Enabled = rows.Count > 0;
             startAll.Enabled = rows.Count > sessions.Count;
             stopAll.Enabled = canStop;
             RefreshSelectionActions();
@@ -1186,6 +1273,7 @@ namespace FarmHoras
             }
 
             refresh.Stop();
+            steamConfigWatcher.Dispose();
             foreach (var session in sessions.Values)
             {
                 session.RequestStop();

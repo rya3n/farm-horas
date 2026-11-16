@@ -27,7 +27,9 @@ Gerencie sessões Steam por AppID no Windows, sem baixar os jogos. Inicie sua li
 5. Acompanhe o tempo da sessão e as horas acumuladas na coluna **Total na Steam**. Ao detectar **3.333 horas** ou mais para um jogo, o Farm Horas encerra a sessão desse AppID e o remove de **Jogos salvos**. A regra também vale para jogos que já estavam na meta quando foram carregados.
 6. Clique em **Parar** para encerrar uma sessão manualmente ou em **Parar todas** para encerrar todas. Fechar o Farm Horas também encerra as sessões.
 
-Use AppIDs de jogos disponíveis na sua conta. O Farm Horas consulta a cada 15 segundos o total acumulado que o cliente Steam gravou no computador. A atualização depende de quando a Steam sincroniza esses dados. A coluna exibe **—** enquanto o total estiver indisponível. A lista de AppIDs e o log ficam em `%LOCALAPPDATA%\FarmHoras`.
+Use AppIDs de jogos disponíveis na sua conta. O Farm Horas monitora quando o cliente Steam grava seu total no computador e recalcula **Até 3.333 h** e **Até a parada** automaticamente. Há também uma consulta de reserva a cada 15 segundos. A coluna exibe **—** enquanto o total estiver indisponível. A lista de AppIDs e o log ficam em `%LOCALAPPDATA%\FarmHoras`.
+
+Use **Atualizar horas** para reler o total gravado pela Steam e recalcular **Até 3.333 h** e **Até a parada** na hora. O programa informa se encontrou um novo total. A Steam ainda controla quando as horas são registradas no perfil.
 
 ## Proteção de horas
 

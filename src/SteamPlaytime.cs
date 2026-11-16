@@ -20,10 +20,12 @@ namespace FarmHoras
         private long cachedLength;
         private Dictionary<uint, int> cachedTotals;
         internal uint AccountId { get; private set; }
+        internal string ConfigPath { get; private set; }
 
-        internal Dictionary<uint, int> Read()
+        internal Dictionary<uint, int> Read(bool forceRead = false)
         {
             AccountId = 0;
+            ConfigPath = null;
             try
             {
                 using (var client = SteamClient.FindRunning())
@@ -42,9 +44,10 @@ namespace FarmHoras
                     }
 
                     var file = new FileInfo(Path.Combine(install, "userdata", account.ToString(CultureInfo.InvariantCulture), "config", "localconfig.vdf"));
+                    ConfigPath = file.FullName;
                     DateTime writeTime = file.LastWriteTimeUtc;
                     long length = file.Length;
-                    if (file.FullName == cachedPath && writeTime == cachedWriteTime && length == cachedLength)
+                    if (!forceRead && file.FullName == cachedPath && writeTime == cachedWriteTime && length == cachedLength)
                     {
                         AccountId = account;
                         return cachedTotals;
